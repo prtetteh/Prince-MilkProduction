@@ -3,6 +3,5 @@ pandas
 numpy
 matplotlib
 plotly
-SimpleExpSmoothing
-train_test_split
+
 
