@@ -1,114 +1,90 @@
-# Import required libraries
+# Import libraries
 import streamlit as st
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 import plotly.express as px
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing
+from sklearn.model_selection import train_test_split
 
-# Set up page configuration
-st.set_page_config(page_title="Business Dashboard", page_icon="📊", layout="wide")
+# Configure page
+st.set_page_config(page_title="Milk Production Dashboard", layout="centered")
 
-# 1.0 Title and Introduction
-st.markdown("<h1 style='color: mediumvioletred;'>🌟 Business Dashboard 🌟</h1>", unsafe_allow_html=True)
-st.markdown(
-    "<p style='color: darkblue; font-size: 20px;'>This dashboard provides insights into sales, customer demographics, and product performance. "
-    "Upload your data to get started.</p>",
-    unsafe_allow_html=True
-)
+# Title and description
+st.title("🥛 Milk Production Analysis Dashboard")
+st.markdown("""
+Analyze monthly milk production data with simple and exponential moving averages. 
+Get insights into trends and generate forecasts!
+""")
 
-# 2.0 Data Input
-st.sidebar.header("Upload Business Data")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv", accept_multiple_files=False)
+# Upload CSV file
+uploaded_file = st.file_uploader("Upload a CSV file with milk production data", type="csv")
 
+# When a file is uploaded, load and process data
 if uploaded_file:
-    data = pd.read_csv(uploaded_file)
-    st.sidebar.success("Data loaded successfully!")
+    # Load data and display a preview
+    data = pd.read_csv(uploaded_file, index_col='Month', parse_dates=True)
+    data.rename(columns={"Monthly milk production (pounds per cow)": "Milk Production"}, inplace=True)
+    st.write("Data Preview:")
+    st.dataframe(data.head())
+
+    # Calculate moving averages
+    data['SMA_12'] = data['Milk Production'].rolling(window=12).mean()
+    data['SMA_12_shifted'] = data['SMA_12'].shift(1)
+    data['EMA_12'] = data['Milk Production'].ewm(span=12, adjust=False).mean()
+    data['EMA_12_shifted'] = data['EMA_12'].shift(1)
+    data['Custom_EMA_0.6'] = data['Milk Production'].ewm(alpha=0.6, adjust=False).mean()
+    data['Custom_EMA_0.6_shifted'] = data['Custom_EMA_0.6'].shift(1)
+
+    # Interactive line plot with Plotly
+    st.subheader("Milk Production and Moving Averages")
+    plot_cols = ['Milk Production', 'SMA_12', 'EMA_12', 'Custom_EMA_0.6']
+    selected_cols = st.multiselect("Select metrics to plot:", plot_cols, default=plot_cols)
+    fig = px.line(data, x=data.index, y=selected_cols, 
+                  title="Milk Production with Various Moving Averages",
+                  labels={'value': 'Milk Production (pounds)', 'index': 'Month'})
+    st.plotly_chart(fig)
+
+    # Histogram for milk production
+    st.subheader("Milk Production Histogram")
+    bins = st.slider("Select number of bins:", 10, 50, 20)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(data['Milk Production'], bins=bins, color='skyblue', edgecolor='black')
+    ax.set_title("Distribution of Milk Production")
+    ax.set_xlabel("Milk Production (pounds)")
+    ax.set_ylabel("Frequency")
+    st.pyplot(fig)
+
+    # Bar chart for seasonal analysis
+    st.subheader("Monthly Production Overview")
+    monthly_avg = data['Milk Production'].groupby(data.index.month).mean()
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(monthly_avg.index, monthly_avg, color='lightcoral')
+    ax.set_title("Average Milk Production by Month")
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Average Production (pounds)")
+    st.pyplot(fig)
+
+    # Train-Test Split for Forecasting
+    st.subheader("Forecasting with Simple Exponential Smoothing")
+    data.index = pd.date_range(start=data.index[0], periods=len(data), freq='MS')
+    train, test = train_test_split(data, test_size=0.2, shuffle=False)
+
+    # Forecasting with Simple Exponential Smoothing
+    model = SimpleExpSmoothing(train['Milk Production'])
+    fitted_model = model.fit(smoothing_level=0.1, optimized=False)
+    forecast = fitted_model.forecast(steps=len(test))
+
+    # Display actual vs forecasted data
+    forecast_df = pd.DataFrame({'Actual': test['Milk Production'], 'Forecast': forecast})
+    st.line_chart(forecast_df)
+
+    # Display data preview and forecast results
+    st.write("Preview of Forecast Results")
+    st.dataframe(forecast_df.head())
     
-    # Show a preview of the data
-    st.markdown("<h2 style='color: teal;'>📄 Data Preview</h2>", unsafe_allow_html=True)
-    st.write(data.head())
+    st.markdown("### Download Forecast Data")
+    st.download_button(label="Download Forecast", data=forecast_df.to_csv(), file_name="forecast.csv")
 
-    # Chart selection and customizations
-    st.sidebar.header("Chart Customization")
-    st.sidebar.markdown("<p style='color: darkorange;'><strong>Select the type of chart and columns to visualize:</strong></p>", unsafe_allow_html=True)
-
-    chart_type = st.sidebar.selectbox("Choose a chart type:", ["Line Chart", "Bar Chart", "Histogram", "Pie Chart"])
-
-    # X-axis and Y-axis selection for certain charts
-    x_axis = st.sidebar.selectbox("Select X-axis column:", data.columns)
-    y_axis = st.sidebar.selectbox("Select Y-axis column:", data.columns)
-
-    # Dynamic visualization based on selected chart type
-    st.markdown(f"<h2 style='color: darkorange;'>📊 {chart_type}</h2>", unsafe_allow_html=True)
-
-    # Sales Line Chart
-    if chart_type == "Line Chart":
-        fig = px.line(
-            data, x=x_axis, y=y_axis, 
-            title=f"{y_axis} Over {x_axis}", 
-            color_discrete_sequence=["#FF7F50"]
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Bar Chart for comparison
-    elif chart_type == "Bar Chart":
-        fig = px.bar(
-            data, x=x_axis, y=y_axis, 
-            color=x_axis, title=f"{y_axis} by {x_axis}", 
-            color_discrete_sequence=px.colors.qualitative.Bold
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Histogram for data distribution
-    elif chart_type == "Histogram":
-        fig = px.histogram(
-            data, x=x_axis, nbins=20,
-            title=f"Distribution of {x_axis}", 
-            color_discrete_sequence=["#1f77b4"]
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Pie Chart for segmentation
-    elif chart_type == "Pie Chart":
-        fig = px.pie(
-            data, names=x_axis, values=y_axis, 
-            title=f"{y_axis} by {x_axis} Segmentation",
-            color_discrete_sequence=px.colors.sequential.Sunset
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Additional Pre-built Analyses
-    st.markdown("<h2 style='color: darkgreen;'>📈 Pre-built Insights</h2>", unsafe_allow_html=True)
-
-    # Sales over time if applicable
-    if 'sales_date' in data.columns and 'sales_amount' in data.columns:
-        fig_sales = px.line(
-            data, x='sales_date', y='sales_amount', 
-            title="Sales Over Time", color_discrete_sequence=["#FF6347"]
-        )
-        st.plotly_chart(fig_sales, use_container_width=True)
-
-    # Customer Segmentation by Region
-    if 'region' in data.columns and 'sales_amount' in data.columns:
-        fig_region = px.pie(
-            data, names='region', values='sales_amount', 
-            title="Customer Segmentation by Region", color_discrete_sequence=px.colors.sequential.Plasma
-        )
-        st.plotly_chart(fig_region, use_container_width=True)
-
-    # Product Analysis
-    if 'product' in data.columns and 'sales_amount' in data.columns:
-        top_products_df = data.groupby('product').sum()['sales_amount'].nlargest(10)
-        fig_products = px.bar(
-            top_products_df, x=top_products_df.index, y='sales_amount', 
-            title="Top 10 Products by Sales", color_discrete_sequence=px.colors.sequential.Viridis
-        )
-        st.plotly_chart(fig_products, use_container_width=True)
-
-    # Feedback Form
-    st.markdown("<h2 style='color: purple;'>💬 Feedback</h2>", unsafe_allow_html=True)
-    feedback = st.text_area("Please provide any feedback or suggestions.")
-    if st.button("Submit Feedback"):
-        st.success("Thank you for your feedback!")
-
-# Footer
-st.write("---")
-st.write("This business dashboard template is flexible and customizable for your specific business needs.")
+else:
+    st.info("Please upload a CSV file to proceed with the analysis.")
